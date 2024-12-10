@@ -11,14 +11,15 @@ const app = express();
 
 app.use(express.json());
 app.use(cors());
-let call_All = 0; // Define call_All antes de su uso
-let totalCalls = 0; // Define totalCalls antes de su uso
-let campaignId = null; // Define campaignId antes de su uso
-const callIdToTrunkMap = {}; // Agregar definición para callIdToTrunkMap
-const callIdToCampaignMap = {}; // También agregar definición para callIdToCampaignMap
+
+let call_All = 0;
+let totalCalls = 0;
+let campaignId = null;
+const callIdToTrunkMap = {};
+const callIdToCampaignMap = {};
 
 const OUTGOING_DIR = "./call";
-const callQueuePhone = []; // Agregar definición para callQueuePhone
+const callQueuePhone = [];
 
 let trunkStatus = {
   204: {
@@ -36,7 +37,7 @@ let trunkStatus = {
 };
 
 const dbConfig = {
-  host: "localhost", // o 127.0.0.1
+  host: "localhost",
   user: "root",
   password: "",
   database: "asterisk_app",
@@ -46,6 +47,34 @@ const pool = mysql.createPool(dbConfig);
 
 const callEndQueue = [];
 let isProcessingQueue = false;
+
+function parseEventContent(content) {
+  const evt = {};
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let line of lines) {
+    line = line.replace(/,$/, "");
+
+    let delimiter = ":";
+    if (line.includes("=")) {
+      delimiter = "=";
+    } else if (line.includes(":")) {
+      delimiter = ":";
+    } else {
+      continue;
+    }
+
+    const parts = line.split(delimiter);
+    const key = parts[0].trim().toLowerCase();
+    const value = parts.slice(1).join(delimiter).trim().replace(/^"|"$/g, "");
+    evt[key] = value;
+  }
+
+  return evt;
+}
 
 async function processQueue1() {
   if (isProcessingQueue) return;
@@ -65,23 +94,15 @@ async function processQueue1() {
 }
 
 async function processCallEndEvent(evt) {
-  // Convertir a objeto si es necesario
-  if (typeof evt === "string") {
-    try {
-      evt = JSON.parse(evt); // Intentar convertir el string en un objeto JSON
-    } catch (error) {
-      console.error(`❌ Error al convertir el evento a JSON: ${error.message}`);
-      return; // Terminar la función si no se puede parsear
-    }
-  }
-
   console.log("Evento recibido:", evt);
 
   const callId = evt["call_id"];
   const callStatus = evt["status"];
   const uniqueidEvt = evt["uniqueid"];
+  const userEvent = evt["userevent"];
+  const exten = evt["exten"];
 
-  if (evt["userevent"] === "CallEnd" && evt["exten"] === "h") {
+  if (userEvent === "CallEnd" && exten === "h") {
     console.log(
       `🛑 CallEnd recibido: CALL_ID ${callId} - Estado ${callStatus}`
     );
@@ -115,20 +136,31 @@ async function processCallEndEvent(evt) {
   }
 }
 
-function handleCallEndEvent(evt) {
+function handleCallEndEvent(fileContent) {
+  const evt = parseEventContent(fileContent);
   callEndQueue.push(evt);
   processQueue1();
+}
+
+function findTrunkByCallId(callId) {
+  return callIdToTrunkMap[callId];
 }
 
 function liberarTroncal(callId) {
   const trunk = findTrunkByCallId(callId);
   if (trunk && trunkStatus[trunk]) {
-    trunkStatus[trunk].busy -= 1;
     delete callIdToTrunkMap[callId];
     delete callIdToCampaignMap[callId];
-    console.log(
-      `📞 Troncal ${trunk} liberada para CALL_ID ${callId}. Ahora tiene ${trunkStatus[trunk].busy} llamadas activas.`
-    );
+
+    // Liberar canal de troncal
+    for (const channel in trunkStatus[trunk]) {
+      if (trunkStatus[trunk][channel] === callId) {
+        trunkStatus[trunk][channel] = "";
+        break;
+      }
+    }
+
+    console.log(`📞 Troncal ${trunk} liberada para CALL_ID ${callId}.`);
     processQueuePhone();
   } else {
     console.warn(`⚠️ No se encontró troncal para CALL_ID ${callId}.`);
@@ -195,9 +227,6 @@ app.post("/start-call", async (req, res) => {
 
     totalCalls = numbers.length;
 
-    const numbersWithUUIDs = [];
-
-    // Extraer el nombre del archivo sin la extensión
     const audioFileNameWithoutExtension = path.basename(
       audio_url,
       path.extname(audio_url)
@@ -211,12 +240,10 @@ app.post("/start-call", async (req, res) => {
       );
       callQueuePhone.push({
         number,
-        audioFileNameWithoutExtension, // Asignamos aquí el valor
+        audioFileNameWithoutExtension,
         campaignId: newCampaignId,
         callId,
       });
-
-      numbersWithUUIDs.push({ number, callId });
     }
 
     console.log(`📊 Total de números: ${numbers.length}`);
@@ -258,13 +285,14 @@ FailureContext: llamada_automatica
     console.log(
       `📂 Archivo .call creado para el número ${number} en troncal ${trunk}: ${callFilePath}`
     );
-    callIdToTrunkMap[callId] = trunk;
-    callIdToCampaignMap[callId] = campaignId;
+
     await pool.execute(
       "UPDATE calls SET start_time = NOW() WHERE call_id = ?",
       [callId]
     );
-    console.log(`🔗 Mapeando CALL_ID ${callId} a Troncal ${trunk}.`);
+    console.log(
+      `📞 Archivo creado para CALL_ID ${callId} en Troncal ${trunk}.`
+    );
   } catch (error) {
     console.error("❌ Error en createCallFile:", error);
     throw error;
@@ -275,7 +303,7 @@ async function processQueuePhone() {
   if (callQueuePhone.length === 0) return;
 
   const trunksAvailable = Object.keys(trunkStatus).filter((trunk) => {
-    return Object.values(trunkStatus[trunk]).includes(""); // Filtra troncos disponibles
+    return Object.values(trunkStatus[trunk]).includes("");
   });
 
   if (trunksAvailable.length === 0) {
@@ -283,7 +311,6 @@ async function processQueuePhone() {
     return;
   }
 
-  // Asignar llamadas a los troncales disponibles
   for (const trunk of trunksAvailable) {
     const channels = Object.keys(trunkStatus[trunk]);
 
@@ -294,7 +321,13 @@ async function processQueuePhone() {
         const callData = callQueuePhone.shift();
         const { number, campaignId, callId } = callData;
 
+        // Asignamos la llamada al troncal y al canal
         trunkStatus[trunk][channel] = callId;
+
+        // Mapeamos ANTES de crear el archivo
+        callIdToTrunkMap[callId] = trunk;
+        callIdToCampaignMap[callId] = campaignId;
+
         console.log(
           `🔄 Canal ${channel} en Troncal ${trunk} asignado a CALL_ID ${callId}.`
         );
@@ -309,18 +342,19 @@ async function processQueuePhone() {
           console.error(
             `❌ Error procesando llamada en Troncal ${trunk}, Canal ${channel}: ${error.message}`
           );
-          trunkStatus[trunk][channel] = ""; // Liberar canal en caso de error
-          callQueuePhone.unshift(callData); // Reinsertar en la cola
+          trunkStatus[trunk][channel] = "";
+          delete callIdToTrunkMap[callId];
+          delete callIdToCampaignMap[callId];
+          callQueuePhone.unshift(callData);
           break;
         }
       }
     }
   }
 
-  // Reintentar si aún hay llamadas en la cola
   if (callQueuePhone.length > 0) {
     console.log("🔄 Quedan llamadas en la cola, procesando nuevamente...");
-    setImmediate(processQueuePhone); // Usar setImmediate para procesar de inmediato sin bloquear el hilo
+    setImmediate(processQueuePhone);
   } else {
     console.log("✅ Todas las llamadas en la cola han sido procesadas.");
   }
