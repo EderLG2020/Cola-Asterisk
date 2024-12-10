@@ -1,0 +1,16 @@
+
+Channel: SIP/206/2974122121
+status: SUCCESS,
+WaitTime: 45
+Context: llamada_automatica
+Extension: s
+call_id=9c588cc1-86ad-446a-95af-3270e6b4bd9a
+exten: "h"
+uniqueid:974122121.974122121
+Priority: 1
+userevent: "CallEnd",
+DESTINATION_NUMBER:974122121
+CAMPAIGN_ID:9
+TRUNK:206
+FailureRetryTime: 0
+FailureContext: llamada_automatica

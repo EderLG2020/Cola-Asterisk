@@ -1,0 +1,16 @@
+
+Channel: SIP/205/2900000000
+status: SUCCESS,
+WaitTime: 45
+Context: llamada_automatica
+Extension: s
+call_id=1b68748c-d4ce-42e8-a4f6-863ed02fd4ef
+exten: "h"
+uniqueid:900000000.900000000
+Priority: 1
+userevent: "CallEnd",
+DESTINATION_NUMBER:900000000
+CAMPAIGN_ID:9
+TRUNK:205
+FailureRetryTime: 0
+FailureContext: llamada_automatica

@@ -1,0 +1,16 @@
+
+Channel: SIP/206/2974578878
+status: SUCCESS,
+WaitTime: 45
+Context: llamada_automatica
+Extension: s
+call_id=4c6fafe9-1412-4480-95ca-186ed0a0e496
+exten: "h"
+uniqueid:974578878.974578878
+Priority: 1
+userevent: "CallEnd",
+DESTINATION_NUMBER:974578878
+CAMPAIGN_ID:9
+TRUNK:206
+FailureRetryTime: 0
+FailureContext: llamada_automatica

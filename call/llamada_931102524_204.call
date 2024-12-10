@@ -1,0 +1,16 @@
+
+Channel: SIP/204/2931102524
+status: SUCCESS,
+WaitTime: 45
+Context: llamada_automatica
+Extension: s
+call_id=09db6c0e-73c4-44ac-863c-90f67c3c4399
+exten: "h"
+uniqueid:931102524.931102524
+Priority: 1
+userevent: "CallEnd",
+DESTINATION_NUMBER:931102524
+CAMPAIGN_ID:9
+TRUNK:204
+FailureRetryTime: 0
+FailureContext: llamada_automatica
